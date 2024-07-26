@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final counterProvider = StateProvider<int>((ref) => 0);
@@ -31,10 +32,59 @@ class ThemeNotifier extends StateNotifier<ThemeMode> {
   }
 }
 
-void main() {
+final localeProvider = StateNotifierProvider<LocaleNotifier, Locale?>((ref) {
+  return LocaleNotifier();
+});
+
+class LocaleNotifier extends StateNotifier<Locale?> {
+  LocaleNotifier() : super(null) {
+    _loadLocale();
+  }
+
+  Future<void> _loadLocale() async {
+    late String languageCode;
+    late String countryCode;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('languageCode') == null) {
+      languageCode = prefs.getString('languageCode') ?? 'en';
+      countryCode = prefs.getString('countryCode') ?? 'US';
+    }
+    if (prefs.getString('languageCode') == 'en') {
+      languageCode = prefs.getString('languageCode') ?? 'en';
+      countryCode = prefs.getString('countryCode') ?? 'US';
+    }
+    if (prefs.getString('languageCode') == 'fa') {
+      languageCode = prefs.getString('languageCode') ?? 'fa';
+      countryCode = prefs.getString('countryCode') ?? 'IR';
+    }
+    state = Locale(languageCode, countryCode);
+  }
+
+  Future<void> setLocale(Locale locale) async {
+    await Future.delayed(const Duration(milliseconds: 50), () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('languageCode', locale.languageCode);
+      await prefs.setString('countryCode', locale.countryCode ?? '');
+      state = locale;
+    });
+  }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
+
   runApp(
-    const ProviderScope(
-      child: MyApp(),
+    ProviderScope(
+      child: Consumer(builder: (context, ref, _) {
+        return EasyLocalization(
+          supportedLocales: const [Locale('en', 'US'), Locale('fa', 'IR')],
+          path: 'assets/localizations',
+          fallbackLocale: ref.watch(localeProvider),
+          useFallbackTranslations: true,
+          child: const MyApp(),
+        );
+      }),
     ),
   );
 }
@@ -45,13 +95,16 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeProvider);
+    final locale = ref.watch(localeProvider);
 
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
       title: 'Multi-Theme Counter',
       theme: ThemeData.light(),
       darkTheme: ThemeData.dark(),
       themeMode: themeMode,
+      locale: locale,
+      supportedLocales: context.supportedLocales,
+      localizationsDelegates: context.localizationDelegates,
       home: const HomeScreen(),
     );
   }
@@ -64,19 +117,21 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final counter = ref.watch(counterProvider);
     final themeNotifier = ref.read(themeProvider.notifier);
+    final localeNotifier = ref.read(localeProvider.notifier);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Multi-Theme Counter'),
+        title: Text('app_title'.tr()),
         actions: [
-          Row(
-            children: [
-               const Text('Switch Theme'),
-
-              IconButton(
-                icon: const Icon(Icons.brightness_6),
-                onPressed: themeNotifier.toggleTheme,
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.brightness_6),
+            onPressed: themeNotifier.toggleTheme,
+          ),
+          IconButton(
+            icon: const Icon(Icons.language),
+            onPressed: () async {
+              await localeNotifier.setLocale(await context.getSwitchedLocale());
+            },
           ),
         ],
       ),
@@ -84,7 +139,7 @@ class HomeScreen extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text('You have pushed the button this many times:'),
+            Text('message'.tr()),
             Text(
               '$counter',
               style: Theme.of(context).textTheme.headlineMedium,
@@ -94,9 +149,23 @@ class HomeScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => ref.read(counterProvider.notifier).state++,
-        tooltip: 'Increment',
+        tooltip: 'increment'.tr(),
         child: const Icon(Icons.add),
       ),
     );
+  }
+}
+
+extension on BuildContext {
+  Future<Locale> getSwitchedLocale() async {
+    final newLocale = locale.languageCode == 'en'
+        ? const Locale('fa', 'IR')
+        : const Locale('en', 'US');
+
+    await Future.delayed(const Duration(milliseconds: 50), () {
+      setLocale(newLocale);
+    });
+
+    return newLocale;
   }
 }
